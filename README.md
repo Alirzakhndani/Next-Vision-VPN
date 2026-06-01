@@ -60,6 +60,25 @@ This repository includes `.github/workflows/build-desktop.yml`. On push, pull re
 6. Publishes a GitHub Release automatically for tags like `v3.0.0`.
 
 
+
+## Fix GitHub "This branch has conflicts" warning
+
+If GitHub shows conflicts for `.gitignore`, `NextVisionVPN.jsx`, `README.md`, `electron/main.cjs`, or `package.json`, keep this branch as the final PC app version and merge the target branch into it with the helper below.
+
+### Windows PowerShell
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\resolve-github-conflicts.ps1 -TargetBranch main -Remote origin
+```
+
+### macOS/Linux/Git Bash
+
+```bash
+bash scripts/resolve-github-conflicts.sh main origin
+```
+
+The script fetches `origin/main`, merges it into your current app branch, resolves the known conflicted files by keeping the final app version from this branch, commits the merge resolution, and pushes the branch back to GitHub. Refresh the PR page after it finishes.
+
 ## فارسی: اگر می‌خواهی همه چیز روی PC خودت اتوماتیک انجام شود
 
 من از داخل این محیط به ترمینال PC شخصی تو دسترسی مستقیم ندارم؛ اما یک اسکریپت آماده گذاشته‌ام که روی ویندوز خودت همه کارها را انجام می‌دهد: نصب/چک ابزارها، Login به GitHub، نصب پکیج‌ها، Build محلی، ساخت/تنظیم Repo، Push کردن کد و Trigger شدن Build ویندوز در GitHub Actions.

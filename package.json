@@ -15,7 +15,9 @@
     "dist:win": "npm run prepare:core && npm run build && electron-builder --win --publish never",
     "install:public": "bash scripts/npm-install-public.sh",
     "publish:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows-auto-publish.ps1",
-    "prepare:core": "node scripts/install-xray-core.mjs"
+    "prepare:core": "node scripts/install-xray-core.mjs",
+    "resolve:conflicts": "bash scripts/resolve-github-conflicts.sh main origin",
+    "resolve:conflicts:win": "powershell -ExecutionPolicy Bypass -File scripts/resolve-github-conflicts.ps1 -TargetBranch main -Remote origin"
   },
   "dependencies": {
     "lucide-react": "latest",
