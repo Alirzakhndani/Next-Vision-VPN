@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Shield, Zap, Settings, Server, Activity, Globe,
   Lock, Wifi, RefreshCw, Plus, Trash2, Eye, EyeOff,
@@ -48,6 +48,8 @@ const SEED = [
 
 /* ─── Helpers ──────────────────────────────────────────────────────────────── */
 const PC = { VMess: C.cyan, VLess: C.violet, Trojan: C.amber, Shadowsocks: C.green, SOCKS5: C.red };
+const vpnApi = () => (typeof window !== "undefined" ? window.nextVisionVpn : null);
+const makeId = () => Date.now()+Math.floor(Math.random()*100000);
 const pingColor = (p) => p < 50 ? C.green : p < 100 ? C.amber : C.red;
 const fmtMB = (mb) => mb < 0.001 ? "0 B" : mb < 1 ? (mb*1024).toFixed(0)+" KB" : mb < 1024 ? mb.toFixed(2)+" MB" : (mb/1024).toFixed(3)+" GB";
 const fmtTime = (s) => {
@@ -56,6 +58,93 @@ const fmtTime = (s) => {
   const sec = (s%60).toString().padStart(2,"0");
   return `${h}:${m}:${sec}`;
 };
+
+const safeB64Decode = (input="") => {
+  const normalized = input.trim().replace(/-/g,"+").replace(/_/g,"/");
+  const padded = normalized + "===".slice((normalized.length + 3) % 4);
+  if (typeof atob === "function") return decodeURIComponent(escape(atob(padded)));
+  return padded;
+};
+const parseHostPort = (url) => ({ address:url.hostname, port:parseInt(url.port||"443",10) });
+const protocolName = (name="") => name.toLowerCase()==="vless" ? "VLess" : name.toLowerCase()==="vmess" ? "VMess" : name.toLowerCase()==="ss" ? "Shadowsocks" : name.charAt(0).toUpperCase()+name.slice(1).toLowerCase();
+const labelParts = (rawLabel, address, proto) => {
+  const label = decodeURIComponent(rawLabel||"").replace(/\+/g," ").trim();
+  const city = label || address || "Imported Node";
+  return { country: city, city, flag: "🌐", proto: protocolName(proto) };
+};
+const parseVmess = (line) => {
+  const data = JSON.parse(safeB64Decode(line.replace(/^vmess:\/\//i,"")));
+  const parts = labelParts(data.ps, data.add, "vmess");
+  return {
+    id:makeId(), ...parts, address:data.add, port:parseInt(data.port||"443",10), uuid:data.id,
+    alterId:parseInt(data.aid||"0",10), encryption:data.scy||"auto", net:data.net||"tcp",
+    tls:data.tls==="tls", security:data.tls||"", path:data.path||"/", host:data.host||data.sni||"",
+    sni:data.sni||data.host||data.add, base:55, ping:55, pingHistory:[55], imported:true, raw:line,
+  };
+};
+const parseLink = (line) => {
+  if (/^vmess:\/\//i.test(line)) return parseVmess(line);
+  const url = new URL(line);
+  const proto = url.protocol.replace(":","").toLowerCase();
+  if (!["vless","trojan","ss"].includes(proto)) throw new Error(`Unsupported link protocol: ${proto}`);
+  let username = decodeURIComponent(url.username||"");
+  let password = decodeURIComponent(url.password||"");
+  let method = url.searchParams.get("method")||"aes-256-gcm";
+  if (proto === "ss" && username && !password && username.includes(":")) {
+    const [m, ...rest] = username.split(":");
+    method = m; password = rest.join(":");
+  } else if (proto === "ss" && username && !password) {
+    const decoded = safeB64Decode(username);
+    if (decoded.includes(":")) {
+      const [m, ...rest] = decoded.split(":");
+      method = m; password = rest.join(":");
+    }
+  }
+  const hp = parseHostPort(url);
+  const parts = labelParts(url.hash.replace(/^#/,""), hp.address, proto);
+  return {
+    id:makeId(), ...parts, ...hp,
+    uuid: proto === "vless" ? username : undefined,
+    password: proto === "trojan" ? username : password,
+    method, net:url.searchParams.get("type")||url.searchParams.get("network")||"tcp",
+    tls:["tls","reality"].includes(url.searchParams.get("security")) || proto === "trojan",
+    security:url.searchParams.get("security")|| (proto === "trojan" ? "tls" : ""),
+    path:url.searchParams.get("path")||"/", host:url.searchParams.get("host")||"",
+    sni:url.searchParams.get("sni")||url.searchParams.get("serverName")||url.hostname,
+    serviceName:url.searchParams.get("serviceName")||"", flow:url.searchParams.get("flow")||"none",
+    base:60, ping:60, pingHistory:[60], imported:true, raw:line,
+  };
+};
+const parseConfigInput = (text) => {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("Paste at least one V2Ray link or JSON config.");
+  if (trimmed.startsWith("{")) {
+    const json = JSON.parse(trimmed);
+    const outbound = json.outbounds?.find(o=>["vmess","vless","trojan","shadowsocks"].includes(o.protocol)) || json.outbounds?.[0];
+    if (!outbound) throw new Error("JSON does not contain a supported outbound.");
+    const vnext = outbound.settings?.vnext?.[0];
+    const ss = outbound.settings?.servers?.[0];
+    const user = vnext?.users?.[0] || {};
+    const proto = protocolName(outbound.protocol);
+    const address = vnext?.address || ss?.address;
+    const stream = outbound.streamSettings || {};
+    return [{
+      id:makeId(), ...labelParts(outbound.tag, address, outbound.protocol), proto,
+      address, port:vnext?.port || ss?.port, uuid:user.id, password:ss?.password, method:ss?.method,
+      alterId:user.alterId||0, encryption:user.security||user.encryption||"auto", flow:user.flow||"none",
+      net:stream.network||"tcp", tls:["tls","reality"].includes(stream.security), security:stream.security||"",
+      path:stream.wsSettings?.path || stream.httpSettings?.path || "/",
+      host:stream.wsSettings?.headers?.Host || stream.tlsSettings?.serverName || "",
+      sni:stream.tlsSettings?.serverName || address, serviceName:stream.grpcSettings?.serviceName || "",
+      base:65, ping:65, pingHistory:[65], imported:true, raw:trimmed,
+    }];
+  }
+  return trimmed.split(/\r?\n/).map(v=>v.trim()).filter(Boolean).map(parseLink);
+};
+const loadSavedServers = () => {
+  try { return JSON.parse(localStorage.getItem("nextVisionServers")||"null") || null; } catch { return null; }
+};
+
 
 /* ─── Sparkline ────────────────────────────────────────────────────────────── */
 function Sparkline({ history, color, w=52, h=22 }) {
@@ -259,7 +348,7 @@ function StatCard({ label, value, sub, Icon, color }) {
 }
 
 /* ─── Dashboard View ───────────────────────────────────────────────────────── */
-function DashboardView({ connected, connecting, activeServer, speedData, totalDown, totalUp, publicIP, elapsed, handleConnect, fastestServer }) {
+function DashboardView({ connected, connecting, activeServer, speedData, totalDown, totalUp, publicIP, elapsed, handleConnect, fastestServer, statusMessage, errorMessage }) {
   const spd = speedData.length ? speedData[speedData.length-1] : {down:0,up:0};
   return (
     <div style={{padding:"26px 26px",display:"flex",flexDirection:"column",gap:18,animation:"fadeIn 0.3s ease"}}>
@@ -286,7 +375,7 @@ function DashboardView({ connected, connecting, activeServer, speedData, totalDo
             <div style={{fontSize:12.5,color:C.muted}}>
               {connected
                 ? `${activeServer?.proto||"—"} · ${activeServer?.net?.toUpperCase()||"—"} · ${activeServer?.flag||""} ${activeServer?.city||"—"}`
-                : "Your traffic is exposed — connect to a server to secure it"
+                : statusMessage || "Your traffic is exposed — connect to a V2Ray/Xray server to secure it"
               }
             </div>
           </div>
@@ -308,7 +397,7 @@ function DashboardView({ connected, connecting, activeServer, speedData, totalDo
               }}>MASKED</span>
             )}
           </div>
-          <button onClick={() => handleConnect(fastestServer?.id||1)} disabled={connecting}
+          <button onClick={() => handleConnect(connected ? activeServer?.id : fastestServer?.id)} disabled={connecting || (!connected && !fastestServer)}
             style={{
               width:"fit-content",padding:"10px 22px",borderRadius:11,border:"none",
               cursor:connecting?"not-allowed":"pointer",
@@ -321,9 +410,19 @@ function DashboardView({ connected, connecting, activeServer, speedData, totalDo
             onMouseEnter={e=>{if(!connecting)e.currentTarget.style.transform="translateY(-1.5px) scale(1.02)";}}
             onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";}}
           >
-            {connecting?"⟳  Connecting…":connected?"⏻  Disconnect":"⚡  Quick Connect"}
+            {connecting?"⟳  Starting core…":connected?"⏻  Disconnect":"⚡  Quick Connect"}
           </button>
         </div>
+        {errorMessage && (
+          <div style={{
+            display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",borderRadius:10,
+            background:C.ra(0.1),border:`1px solid ${C.ra(0.25)}`,color:C.red,fontSize:11.5,
+            fontFamily:"'DM Sans',sans-serif",maxWidth:520,
+          }}>
+            <AlertCircle size={14} style={{flexShrink:0,marginTop:1}} />
+            <span>{errorMessage}</span>
+          </div>
+        )}
         {connected && (
           <div style={{
             display:"flex",flexDirection:"column",alignItems:"center",gap:3,
@@ -449,7 +548,7 @@ function ServerRow({ srv, active, connected, connecting, handleConnect, rank }) 
 }
 
 /* ─── Servers View ─────────────────────────────────────────────────────────── */
-function ServersView({ servers, activeServerId, connected, connecting, handleConnect }) {
+function ServersView({ servers, activeServerId, connected, connecting, handleConnect, openImport }) {
   const [q, setQ] = useState("");
   const filtered = servers.filter(s=>!q||[s.country,s.city,s.proto].some(v=>v.toLowerCase().includes(q.toLowerCase())));
   return (
@@ -458,7 +557,7 @@ function ServersView({ servers, activeServerId, connected, connecting, handleCon
         <div>
           <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:20,color:C.text}}>Server Nodes</div>
           <div style={{fontSize:11,color:C.muted,marginTop:2}}>
-            {servers.length} configs · Auto-sorted by ping · Live testing every 200ms
+            {servers.length} configs · Supports VMess, VLess, Trojan, Shadowsocks · Xray/V2Ray PC core
           </div>
         </div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.b}`,borderRadius:9,padding:"6px 12px"}}>
@@ -502,16 +601,29 @@ function ServersView({ servers, activeServerId, connected, connecting, handleCon
         }}
         onMouseEnter={e=>{e.currentTarget.style.borderColor=C.ca(0.4);e.currentTarget.style.color=C.cyan;}}
         onMouseLeave={e=>{e.currentTarget.style.borderColor=C.b;e.currentTarget.style.color=C.muted;}}
-        ><Plus size={13}/>Add Config</button>
+        onClick={openImport}><Plus size={13}/>Add Config</button>
       </div>
     </div>
   );
 }
 
 /* ─── Settings View ────────────────────────────────────────────────────────── */
-function SettingsView({ settings, setSettings }) {
-  const [tab, setTab] = useState("general");
+function SettingsView({ settings, setSettings, addServers, initialTab="general" }) {
+  const [tab, setTab] = useState(initialTab);
+  const [importText, setImportText] = useState("");
+  const [importMsg, setImportMsg] = useState("");
   const upd = useCallback((k,v)=>setSettings(p=>({...p,[k]:v})),[setSettings]);
+  useEffect(()=>setTab(initialTab),[initialTab]);
+  const doImport = useCallback(()=>{
+    try {
+      const parsed = parseConfigInput(importText);
+      addServers(parsed);
+      setImportMsg(`Imported ${parsed.length} config${parsed.length===1?"":"s"}.`);
+      setImportText("");
+    } catch (error) {
+      setImportMsg(error.message);
+    }
+  },[importText, addServers]);
 
   const Toggle = ({label,desc,k})=>(
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 18px",borderBottom:`1px solid ${C.b}`}}>
@@ -619,7 +731,7 @@ function SettingsView({ settings, setSettings }) {
             <div style={{fontSize:9.5,color:C.muted,marginBottom:8,fontFamily:"'JetBrains Mono',monospace",textTransform:"uppercase",letterSpacing:1.1}}>
               Paste V2Ray Config Link or JSON
             </div>
-            <textarea placeholder={`vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6Ii4uLiJ9\n— or —\nvless://uuid@host:port?type=ws&security=tls&path=%2Fray#Label\n— or —\ntrojan://password@host:443?security=tls#Label\n— or —\nss://BASE64@host:port#Label`}
+            <textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder={`vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6Ii4uLiJ9\n— or —\nvless://uuid@host:port?type=ws&security=tls&path=%2Fray#Label\n— or —\ntrojan://password@host:443?security=tls#Label\n— or —\nss://BASE64@host:port#Label`}
               style={{
                 width:"100%",height:190,resize:"vertical",
                 background:"rgba(255,255,255,0.03)",border:`1px solid ${C.b}`,
@@ -635,7 +747,7 @@ function SettingsView({ settings, setSettings }) {
                 background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
                 color:"white",fontSize:12,fontWeight:600,
                 boxShadow:`0 4px 14px ${C.ca(0.28)}`,fontFamily:"'DM Sans',sans-serif",
-              }}>Import</button>
+              }} onClick={doImport}>Import</button>
               <button style={{
                 padding:"9px 20px",borderRadius:9,border:`1px solid ${C.b}`,
                 cursor:"pointer",background:"transparent",color:C.muted,fontSize:12,
@@ -645,7 +757,11 @@ function SettingsView({ settings, setSettings }) {
                 padding:"9px 20px",borderRadius:9,border:`1px solid ${C.b}`,
                 cursor:"pointer",background:"transparent",color:C.muted,fontSize:12,
                 fontFamily:"'DM Sans',sans-serif",
-              }}>📂  Open File</button>
+              }} onClick={()=>setImportMsg("Use paste import for this build, or import files from your Electron shell integration later.")}>📂  Open File</button>
+            </div>
+            {importMsg && <div style={{marginTop:12,fontSize:11,color:importMsg.startsWith("Imported")?C.green:C.amber,fontFamily:"'JetBrains Mono',monospace"}}>{importMsg}</div>}
+            <div style={{marginTop:14,padding:"12px",borderRadius:10,background:C.ca(0.055),border:`1px solid ${C.ca(0.16)}`,fontSize:11,color:C.text,lineHeight:1.6}}>
+              PC mode starts a local SOCKS proxy on <b>127.0.0.1:{settings.socksPort}</b> and HTTP proxy on <b>127.0.0.1:{settings.httpPort}</b>. Install Xray/V2Ray in PATH or set <b>NEXTVISION_CORE_PATH</b>.
             </div>
           </div>
         )}
@@ -660,12 +776,15 @@ export default function NextVisionVPN() {
   const [connected, setConnected]       = useState(false);
   const [connecting, setConnecting]     = useState(false);
   const [activeId, setActiveId]         = useState(null);
-  const [servers, setServers]           = useState(SEED.map(s=>({...s,ping:s.base,pingHistory:[s.base]})));
+  const [settingsTab, setSettingsTab]   = useState("general");
+  const [servers, setServers]           = useState(()=>loadSavedServers() || []);
   const [speedData, setSpeedData]       = useState(Array.from({length:32},(_,i)=>({t:i,down:0,up:0})));
   const [totalDown, setTotalDown]       = useState(0);
   const [totalUp, setTotalUp]           = useState(0);
   const [publicIP, setPublicIP]         = useState("—");
   const [elapsed, setElapsed]           = useState(0);
+  const [statusMessage, setStatusMessage] = useState(vpnApi()?"Ready for PC tunnel mode":"Preview mode: run inside Electron to start Xray/V2Ray core");
+  const [errorMessage, setErrorMessage] = useState("");
   const connectedAtRef                  = useRef(null);
   const [settings, setSettings]         = useState({
     autoConnect:true, killSwitch:true, dnsLeak:true, smartRoute:false, autoStart:false,
@@ -674,8 +793,17 @@ export default function NextVisionVPN() {
     uuid:"a3e4b7c2-d819-4f36-8a55-7f924e3c7f92",
     path:"/ray", host:"cdn.cloudflare.com", grpcService:"GunService",
     encryption:"auto", flow:"none", method:"aes-256-gcm",
-    dns:"1.1.1.1", routing:"bypass-iran", logLevel:"warning",
+    dns:"1.1.1.1", routing:"bypass-iran", logLevel:"warning", socksPort:10808, httpPort:10809,
   });
+
+  const addServers = useCallback((items)=>{
+    setServers(prev=>{
+      const merged = [...items, ...prev];
+      localStorage.setItem("nextVisionServers", JSON.stringify(merged));
+      return merged;
+    });
+    setView("servers");
+  },[]);
 
   /* Font + keyframes injection */
   useEffect(()=>{
@@ -686,6 +814,8 @@ export default function NextVisionVPN() {
     const style = document.createElement("style");
     style.textContent = `
       *{box-sizing:border-box;}
+      html,body,#root{margin:0;width:100%;height:100%;background:#060c1a;overflow:hidden;}
+      body{font-family:'DM Sans',sans-serif;}
       ::-webkit-scrollbar{width:3px;height:3px;}
       ::-webkit-scrollbar-track{background:transparent;}
       ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.09);border-radius:2px;}
@@ -722,6 +852,7 @@ export default function NextVisionVPN() {
   /* Auto-switch to fastest */
   useEffect(()=>{
     if(!settings.autoConnect||!connected||connecting) return;
+    if(vpnApi()) return; // Avoid switching UI without restarting the real desktop core.
     const sorted = [...servers].sort((a,b)=>a.ping-b.ping);
     const fastest = sorted[0];
     if(fastest && fastest.id!==activeId){
@@ -758,22 +889,37 @@ export default function NextVisionVPN() {
     return ()=>clearInterval(tid);
   },[connected]);
 
-  /* Connect/disconnect */
-  const handleConnect = useCallback((sid)=>{
+  /* Connect/disconnect via Electron + Xray/V2Ray core */
+  const handleConnect = useCallback(async (sid)=>{
     if(connecting) return;
+    const api = vpnApi();
     if(connected && activeId===sid){
+      if(api) await api.disconnect();
       setConnected(false); setActiveId(null);
       setPublicIP("—"); setTotalDown(0); setTotalUp(0);
+      setStatusMessage("Disconnected"); setErrorMessage("");
       return;
     }
-    setConnecting(true);
-    const delay = 1100+Math.random()*900;
-    setTimeout(()=>{
-      setConnected(true); setConnecting(false); setActiveId(sid);
-      const pfx = ["45.152.66","89.117.32","134.209.88","165.232.44"][Math.floor(Math.random()*4)];
-      setPublicIP(`${pfx}.${Math.floor(Math.random()*220+10)}`);
-    },delay);
-  },[connecting,connected,activeId]);
+    const target = servers.find(s=>s.id===sid);
+    if(!target){ setErrorMessage("No server selected. Import a V2Ray config first."); return; }
+    if(!api){
+      setErrorMessage("Desktop core bridge is unavailable. Start the app with `npm run electron:dev` or `npm start` after build.");
+      return;
+    }
+    setConnecting(true); setErrorMessage(""); setStatusMessage(`Starting Xray/V2Ray core for ${target.city}…`);
+    try {
+      const result = await api.connect(target, settings);
+      setConnected(Boolean(result?.ok)); setActiveId(sid);
+      setPublicIP(`${target.address}:${target.port}`);
+      setStatusMessage(`Tunnel active · SOCKS ${result.localSocks} · HTTP ${result.localHttp}`);
+    } catch (error) {
+      setConnected(false); setActiveId(null); setPublicIP("—");
+      setErrorMessage(error.message || "Connection failed.");
+      setStatusMessage("Connection failed");
+    } finally {
+      setConnecting(false);
+    }
+  },[connecting,connected,activeId,servers,settings]);
 
   const sorted       = [...servers].sort((a,b)=>a.ping-b.ping);
   const activeServer = servers.find(s=>s.id===activeId)||null;
@@ -807,14 +953,15 @@ export default function NextVisionVPN() {
           {view==="dashboard"&&(
             <DashboardView connected={connected} connecting={connecting} activeServer={activeServer}
               speedData={speedData} totalDown={totalDown} totalUp={totalUp} publicIP={publicIP}
-              elapsed={elapsed} handleConnect={handleConnect} fastestServer={fastest}/>
+              elapsed={elapsed} handleConnect={handleConnect} fastestServer={fastest}
+              statusMessage={statusMessage} errorMessage={errorMessage}/>
           )}
           {view==="servers"&&(
             <ServersView servers={sorted} activeServerId={activeId} connected={connected}
-              connecting={connecting} handleConnect={handleConnect}/>
+              connecting={connecting} handleConnect={handleConnect} openImport={()=>{setSettingsTab("import");setView("settings");}}/>
           )}
           {view==="settings"&&(
-            <SettingsView settings={settings} setSettings={setSettings}/>
+            <SettingsView settings={settings} setSettings={setSettings} addServers={addServers} initialTab={settingsTab}/>
           )}
         </div>
       </div>
