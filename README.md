@@ -5,8 +5,8 @@ Next Vision VPN is a desktop React + Electron VPN client for PC. It imports V2Ra
 ## Requirements
 
 - Node.js 20+
-- Xray or V2Ray installed on the computer
-  - Put `xray`/`v2ray` in `PATH`, or set `NEXTVISION_CORE_PATH` to the executable path.
+- For development, either run `npm run prepare:core` to download Xray into `bin/`, put `xray`/`v2ray` in `PATH`, or set `NEXTVISION_CORE_PATH` to the executable path.
+- GitHub Actions and `npm run dist:win` bundle the Windows Xray core automatically so the installed PC app can connect without a separate core install.
 
 ## Run in development
 
@@ -26,7 +26,7 @@ That script unsets `npm_config_http_proxy`, `npm_config_https_proxy`, `HTTP_PROX
 ## Build the desktop app
 
 ```bash
-npm run build
+npm run install:public
 npm run dist:win
 ```
 
@@ -53,10 +53,11 @@ The script creates the repo if it does not exist, sets `origin`, pushes the code
 This repository includes `.github/workflows/build-desktop.yml`. On push, pull request, manual workflow dispatch, or a `v*` tag, GitHub Actions:
 
 1. Installs dependencies from the public npm registry.
-2. Builds the Vite renderer.
-3. Packages the Windows Electron app.
-4. Uploads the installer/build output as a workflow artifact.
-5. Publishes a GitHub Release automatically for tags like `v3.0.0`.
+2. Downloads the Windows Xray core into `bin/`.
+3. Builds the Vite renderer.
+4. Packages the Windows Electron app with the bundled core.
+5. Uploads the installer/build output as a workflow artifact.
+6. Publishes a GitHub Release automatically for tags like `v3.0.0`.
 
 
 ## فارسی: اگر می‌خواهی همه چیز روی PC خودت اتوماتیک انجام شود

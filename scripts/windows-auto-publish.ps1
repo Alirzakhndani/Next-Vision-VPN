@@ -63,6 +63,9 @@ if (-not $SkipInstall) {
   npm install --registry=https://registry.npmjs.org/
 }
 
+Write-Step "Downloading bundled Xray core"
+npm run prepare:core
+
 Write-Step "Running a local renderer build check"
 npm run build
 

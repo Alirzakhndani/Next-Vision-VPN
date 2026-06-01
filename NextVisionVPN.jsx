@@ -62,8 +62,10 @@ const fmtTime = (s) => {
 const safeB64Decode = (input="") => {
   const normalized = input.trim().replace(/-/g,"+").replace(/_/g,"/");
   const padded = normalized + "===".slice((normalized.length + 3) % 4);
-  if (typeof atob === "function") return decodeURIComponent(escape(atob(padded)));
-  return padded;
+  if (typeof atob !== "function") return padded;
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 };
 const parseHostPort = (url) => ({ address:url.hostname, port:parseInt(url.port||"443",10) });
 const protocolName = (name="") => name.toLowerCase()==="vless" ? "VLess" : name.toLowerCase()==="vmess" ? "VMess" : name.toLowerCase()==="ss" ? "Shadowsocks" : name.charAt(0).toUpperCase()+name.slice(1).toLowerCase();
@@ -82,36 +84,58 @@ const parseVmess = (line) => {
     sni:data.sni||data.host||data.add, base:55, ping:55, pingHistory:[55], imported:true, raw:line,
   };
 };
+const parseShadowsocks = (line) => {
+  const bodyWithHash = line.replace(/^ss:\/\//i, "");
+  const [bodyAndQuery, rawHash=""] = bodyWithHash.split("#");
+  const [body] = bodyAndQuery.split("?");
+  let decoded = body;
+  let address = "";
+  let port = 8388;
+  let method = "aes-256-gcm";
+  let password = "";
+
+  if (body.includes("@")) {
+    const [userinfo, hostPort] = body.split("@");
+    const decodedUser = userinfo.includes(":") ? decodeURIComponent(userinfo) : safeB64Decode(userinfo);
+    const [parsedMethod, ...passwordParts] = decodedUser.split(":");
+    method = parsedMethod || method;
+    password = passwordParts.join(":");
+    const hp = new URL(`ss://${hostPort}`);
+    address = hp.hostname;
+    port = parseInt(hp.port||"8388",10);
+  } else {
+    decoded = safeB64Decode(body);
+    const match = decoded.match(/^(.+?):(.+?)@(.+):(\d+)$/);
+    if (!match) throw new Error("Invalid Shadowsocks link format.");
+    [, method, password, address, port] = match;
+    port = parseInt(port,10);
+  }
+
+  const parts = labelParts(rawHash, address, "ss");
+  return { id:makeId(), ...parts, address, port, password, method, net:"tcp", tls:false, base:60, ping:60, pingHistory:[60], imported:true, raw:line };
+};
 const parseLink = (line) => {
   if (/^vmess:\/\//i.test(line)) return parseVmess(line);
+  if (/^ss:\/\//i.test(line)) return parseShadowsocks(line);
   const url = new URL(line);
   const proto = url.protocol.replace(":","").toLowerCase();
-  if (!["vless","trojan","ss"].includes(proto)) throw new Error(`Unsupported link protocol: ${proto}`);
-  let username = decodeURIComponent(url.username||"");
-  let password = decodeURIComponent(url.password||"");
-  let method = url.searchParams.get("method")||"aes-256-gcm";
-  if (proto === "ss" && username && !password && username.includes(":")) {
-    const [m, ...rest] = username.split(":");
-    method = m; password = rest.join(":");
-  } else if (proto === "ss" && username && !password) {
-    const decoded = safeB64Decode(username);
-    if (decoded.includes(":")) {
-      const [m, ...rest] = decoded.split(":");
-      method = m; password = rest.join(":");
-    }
-  }
+  if (!["vless","trojan"].includes(proto)) throw new Error(`Unsupported link protocol: ${proto}`);
+  const username = decodeURIComponent(url.username||"");
   const hp = parseHostPort(url);
+  const security = url.searchParams.get("security") || (proto === "trojan" ? "tls" : "");
   const parts = labelParts(url.hash.replace(/^#/,""), hp.address, proto);
   return {
     id:makeId(), ...parts, ...hp,
     uuid: proto === "vless" ? username : undefined,
-    password: proto === "trojan" ? username : password,
-    method, net:url.searchParams.get("type")||url.searchParams.get("network")||"tcp",
-    tls:["tls","reality"].includes(url.searchParams.get("security")) || proto === "trojan",
-    security:url.searchParams.get("security")|| (proto === "trojan" ? "tls" : ""),
+    password: proto === "trojan" ? username : undefined,
+    net:url.searchParams.get("type")||url.searchParams.get("network")||"tcp",
+    tls:["tls","reality"].includes(security) || proto === "trojan",
+    security,
     path:url.searchParams.get("path")||"/", host:url.searchParams.get("host")||"",
     sni:url.searchParams.get("sni")||url.searchParams.get("serverName")||url.hostname,
     serviceName:url.searchParams.get("serviceName")||"", flow:url.searchParams.get("flow")||"none",
+    publicKey:url.searchParams.get("pbk")||"", shortId:url.searchParams.get("sid")||"",
+    fingerprint:url.searchParams.get("fp")||"chrome", spiderX:url.searchParams.get("spx")||"",
     base:60, ping:60, pingHistory:[60], imported:true, raw:line,
   };
 };
@@ -142,7 +166,10 @@ const parseConfigInput = (text) => {
   return trimmed.split(/\r?\n/).map(v=>v.trim()).filter(Boolean).map(parseLink);
 };
 const loadSavedServers = () => {
-  try { return JSON.parse(localStorage.getItem("nextVisionServers")||"null") || null; } catch { return null; }
+  try {
+    if (typeof localStorage === "undefined") return null;
+    return JSON.parse(localStorage.getItem("nextVisionServers")||"null") || null;
+  } catch { return null; }
 };
 
 
@@ -799,7 +826,7 @@ export default function NextVisionVPN() {
   const addServers = useCallback((items)=>{
     setServers(prev=>{
       const merged = [...items, ...prev];
-      localStorage.setItem("nextVisionServers", JSON.stringify(merged));
+      if (typeof localStorage !== "undefined") localStorage.setItem("nextVisionServers", JSON.stringify(merged));
       return merged;
     });
     setView("servers");

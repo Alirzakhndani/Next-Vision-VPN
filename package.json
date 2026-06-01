@@ -10,11 +10,12 @@
     "electron:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
     "start": "electron .",
-    "dist": "npm run build && electron-builder --dir",
+    "dist": "npm run prepare:core && npm run build && electron-builder --dir",
     "lint": "eslint . --ext .js,.jsx",
-    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:win": "npm run prepare:core && npm run build && electron-builder --win --publish never",
     "install:public": "bash scripts/npm-install-public.sh",
-    "publish:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows-auto-publish.ps1"
+    "publish:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows-auto-publish.ps1",
+    "prepare:core": "node scripts/install-xray-core.mjs"
   },
   "dependencies": {
     "lucide-react": "latest",
@@ -31,7 +32,8 @@
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
     "concurrently": "latest",
-    "wait-on": "latest"
+    "wait-on": "latest",
+    "unzipper": "latest"
   },
   "build": {
     "appId": "com.nextvision.vpn",
@@ -52,6 +54,15 @@
     },
     "linux": {
       "target": "AppImage"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }

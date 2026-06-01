@@ -45,8 +45,11 @@ function createWindow() {
 function coreCandidates() {
   const envPath = process.env.NEXTVISION_CORE_PATH;
   const names = process.platform === "win32" ? ["xray.exe", "v2ray.exe", "xray", "v2ray"] : ["xray", "v2ray"];
-  const bundledDir = process.resourcesPath ? path.join(process.resourcesPath, "bin") : path.join(__dirname, "bin");
-  return [envPath, ...names.map((name) => path.join(bundledDir, name)), ...names].filter(Boolean);
+  const resourceBin = process.resourcesPath ? path.join(process.resourcesPath, "bin") : null;
+  const appRootBin = path.join(__dirname, "..", "bin");
+  const electronBin = path.join(__dirname, "bin");
+  const searchDirs = [resourceBin, appRootBin, electronBin].filter(Boolean);
+  return [envPath, ...searchDirs.flatMap((dir) => names.map((name) => path.join(dir, name))), ...names].filter(Boolean);
 }
 
 function streamSettings(server) {
@@ -68,12 +71,22 @@ function streamSettings(server) {
   }
   if (tlsEnabled) {
     settings.security = server.security === "reality" ? "reality" : "tls";
-    settings.tlsSettings = {
+    const secureSettings = {
       serverName: server.sni || server.host || server.address,
       allowInsecure: Boolean(server.allowInsecure),
       fingerprint: server.fingerprint || "chrome",
     };
-    if (server.alpn) settings.tlsSettings.alpn = Array.isArray(server.alpn) ? server.alpn : String(server.alpn).split(",");
+    if (server.alpn) secureSettings.alpn = Array.isArray(server.alpn) ? server.alpn : String(server.alpn).split(",");
+    if (settings.security === "reality") {
+      settings.realitySettings = {
+        ...secureSettings,
+        publicKey: server.publicKey || server.pbk || "",
+        shortId: server.shortId || server.sid || "",
+        spiderX: server.spiderX || server.spx || "",
+      };
+    } else {
+      settings.tlsSettings = secureSettings;
+    }
   }
   return settings;
 }

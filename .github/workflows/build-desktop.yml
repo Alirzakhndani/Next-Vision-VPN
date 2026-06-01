@@ -27,6 +27,9 @@ jobs:
           npm config set registry https://registry.npmjs.org/
           npm install
 
+      - name: Download bundled Xray core
+        run: npm run prepare:core
+
       - name: Build renderer
         run: npm run build
 
