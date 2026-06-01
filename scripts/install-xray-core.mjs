@@ -4,10 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const unzipper = require("unzipper");
+import { spawn } from "node:child_process";
 
 const DEFAULT_XRAY_URL = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip";
 const CORE_URL = process.env.XRAY_CORE_URL || DEFAULT_XRAY_URL;
@@ -21,6 +18,22 @@ async function download(url, destination) {
     throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
   }
   await pipeline(response.body, createWriteStream(destination));
+}
+
+async function extractZip(zipPath, destination) {
+  const command = process.platform === "win32" ? "powershell" : "unzip";
+  const args = process.platform === "win32"
+    ? ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destination.replace(/'/g, "''")}' -Force`]
+    : ["-q", zipPath, "-d", destination];
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "inherit" });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} exited with code ${code}`));
+    });
+  });
 }
 
 async function findXrayExecutable(dir) {
@@ -50,7 +63,7 @@ async function main() {
 
   console.log(`Downloading Xray core from ${CORE_URL}`);
   await download(CORE_URL, zipPath);
-  await unzipper.Open.file(zipPath).then((directory) => directory.extract({ path: workDir }));
+  await extractZip(zipPath, workDir);
 
   const extractedExe = await findXrayExecutable(workDir);
   if (!extractedExe) throw new Error("Downloaded Xray archive did not contain xray.exe");

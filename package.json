@@ -36,8 +36,7 @@
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
     "concurrently": "latest",
-    "wait-on": "latest",
-    "unzipper": "latest"
+    "wait-on": "latest"
   },
   "build": {
     "appId": "com.nextvision.vpn",
