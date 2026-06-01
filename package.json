@@ -1,0 +1,72 @@
+{
+  "name": "next-vision-vpn",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Next Vision VPN desktop client for V2Ray/Xray configs.",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "electron:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build": "vite build",
+    "start": "electron .",
+    "dist": "npm run prepare:core && npm run build && electron-builder --dir",
+    "lint": "eslint . --ext .js,.jsx",
+    "dist:win": "npm run prepare:core && npm run build && electron-builder --win --publish never",
+    "install:public": "bash scripts/npm-install-public.sh",
+    "publish:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows-auto-publish.ps1",
+    "prepare:core": "node scripts/install-xray-core.mjs",
+    "resolve:conflicts": "bash scripts/resolve-github-conflicts.sh main origin",
+    "resolve:conflicts:win": "powershell -ExecutionPolicy Bypass -File scripts/resolve-github-conflicts.ps1 -TargetBranch main -Remote origin",
+    "create:clean-repo": "bash scripts/create-clean-repo.sh ../Next-Vision-VPN-clean main",
+    "create:clean-repo:win": "powershell -ExecutionPolicy Bypass -File scripts/create-clean-repo.ps1 -TargetDir ..\\Next-Vision-VPN-clean -Branch main"
+  },
+  "dependencies": {
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "recharts": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "electron": "latest",
+    "electron-builder": "latest",
+    "eslint": "latest",
+    "eslint-plugin-react-hooks": "latest",
+    "eslint-plugin-react-refresh": "latest",
+    "globals": "latest",
+    "concurrently": "latest",
+    "wait-on": "latest",
+    "unzipper": "latest"
+  },
+  "build": {
+    "appId": "com.nextvision.vpn",
+    "productName": "Next Vision VPN",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  }
+}
