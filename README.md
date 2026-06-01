@@ -58,6 +58,25 @@ This repository includes `.github/workflows/build-desktop.yml`. On push, pull re
 4. Uploads the installer/build output as a workflow artifact.
 5. Publishes a GitHub Release automatically for tags like `v3.0.0`.
 
+
+## فارسی: اگر می‌خواهی همه چیز روی PC خودت اتوماتیک انجام شود
+
+من از داخل این محیط به ترمینال PC شخصی تو دسترسی مستقیم ندارم؛ اما یک اسکریپت آماده گذاشته‌ام که روی ویندوز خودت همه کارها را انجام می‌دهد: نصب/چک ابزارها، Login به GitHub، نصب پکیج‌ها، Build محلی، ساخت/تنظیم Repo، Push کردن کد و Trigger شدن Build ویندوز در GitHub Actions.
+
+در PowerShell داخل فولدر پروژه اجرا کن:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-auto-publish.ps1 -Repo "YOUR_GITHUB_USERNAME/next-vision-vpn"
+```
+
+اگر می‌خواهی علاوه بر Artifact، Release هم ساخته شود:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-auto-publish.ps1 -Repo "YOUR_GITHUB_USERNAME/next-vision-vpn" -TagRelease -ReleaseTag "v3.0.0"
+```
+
+بعد از اجرا برو به GitHub → Repo → Actions → Build desktop app و فایل `next-vision-vpn-windows` را دانلود کن.
+
 ## How it connects
 
 1. Open **Settings → Import Config**.

@@ -13,7 +13,8 @@
     "dist": "npm run build && electron-builder --dir",
     "lint": "eslint . --ext .js,.jsx",
     "dist:win": "npm run build && electron-builder --win --publish never",
-    "install:public": "bash scripts/npm-install-public.sh"
+    "install:public": "bash scripts/npm-install-public.sh",
+    "publish:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows-auto-publish.ps1"
   },
   "dependencies": {
     "lucide-react": "latest",
